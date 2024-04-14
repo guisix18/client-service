@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { RedisService } from '../conifg/redis.config';
+import { RedisService } from '../config/redis.config';
 import { PrismaClientRepository } from 'src/repositories/prisma/prisma.client.repository';
 import { ClientRepository } from 'src/repositories/client/client.repository';
 import { ClientsService } from './client.service';
