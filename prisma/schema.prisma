@@ -14,11 +14,13 @@ datasource db {
 }
 
 model Client {
-  id      String   @id @default(uuid())
-  name    String
-  email   String   @unique
-  cpf     String   @unique
-  account Account?
+  id       String   @id @default(uuid())
+  name     String
+  password String
+  email    String   @unique
+  cpf      String   @unique
+  account  Account?
+  address  String
 
   @@unique([email, cpf])
 }
@@ -26,7 +28,7 @@ model Client {
 model Account {
   id             String   @id @default(uuid())
   agency         String
-  account_number String   @unique
+  account_number String   @unique @default(uuid())
   balance        Int
   account_holder Client   @relation(fields: [client_id], references: [id], onDelete: Cascade)
   client_id      String   @unique
