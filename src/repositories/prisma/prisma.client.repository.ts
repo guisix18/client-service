@@ -12,7 +12,7 @@ import { SearchFilters } from 'src/client/dto/search-filters.dto';
 export class PrismaClientRepository implements ClientRepository {
   constructor(private readonly prisma: PrismaService) {}
 
-  async createClient(dto: ClientDto): Promise<RecordWithId> {
+  async createClient(dto: ClientDto): Promise<Client> {
     const data: Prisma.ClientCreateInput = {
       name: dto.name,
       password: bcrypt.hashSync(dto.password, 8),
@@ -27,7 +27,7 @@ export class PrismaClientRepository implements ClientRepository {
 
     await this.prisma.account.create({
       data: {
-        agency: dto.account.agency,
+        agency: '000001',
         balance: dto.account.balance,
         account_holder: {
           connect: {
@@ -37,23 +37,13 @@ export class PrismaClientRepository implements ClientRepository {
       },
     });
 
-    return {
-      id: client.id,
-    };
+    return client;
   }
 
   async listOneClient(filters: SearchFilters): Promise<Client> {
-    const findClient = this.prisma.client.findUnique({
+    const findClient = this.prisma.client.findFirst({
       where: {
-        id: filters.id || null,
-        OR: [
-          {
-            cpf: filters.cpf || null,
-          },
-          {
-            email: filters.email || null,
-          },
-        ],
+        id: filters.id,
       },
     });
 
