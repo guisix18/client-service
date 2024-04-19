@@ -12,9 +12,6 @@ import {
 import { IsCPF } from '../decorators/isCpf';
 
 export class AccountDto {
-  @IsString()
-  agency: string;
-
   @IsNumber()
   @Min(1)
   @Max(100000)

@@ -1,27 +1,111 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  Inject,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaClientRepository } from 'src/repositories/prisma/prisma.client.repository';
 import { ClientDto } from './dto/client.dto';
 import { RecordWithId } from 'src/utils/record-with-id';
 import { cpf } from 'cpf-cnpj-validator';
+import { ClientKafka } from '@nestjs/microservices';
+import { lastValueFrom } from 'rxjs';
+import { InitTransactionDto, TransactionDto } from './dto/init-transaction.dto';
+import { PrismaService } from 'src/prisma/prisma.service';
+import { Prisma } from '@prisma/client';
 
 @Injectable()
 export class ClientsService {
-  constructor(private readonly clientRepository: PrismaClientRepository) {}
+  constructor(
+    private readonly clientRepository: PrismaClientRepository,
+    @Inject('TRANSACTION_SERVICE')
+    private readonly transactionClient: ClientKafka,
+    private readonly prisma: PrismaService,
+  ) {}
 
   async createClient(dto: ClientDto): Promise<RecordWithId> {
-    if (!cpf.isValid(dto.cpf)) {
-      throw new BadRequestException('This cpf is not valid');
-    }
+    const client = await this.clientRepository.createClient(dto);
 
-    const client_exists = await this.clientRepository.listOneClient({
-      cpf: dto.cpf,
-      email: dto.email,
-    });
+    return {
+      id: client.id,
+    };
+  }
 
-    if (client_exists) {
-      throw new BadRequestException('This client already exists');
-    }
+  async initTransaction(data: InitTransactionDto) {
+    await lastValueFrom(this.transactionClient.emit('init_transaction', data));
 
-    return this.clientRepository.createClient(dto);
+    return;
+  }
+
+  async makeTransaction(data: TransactionDto) {
+    return await this.prisma.$transaction(
+      async (prismaTx: Prisma.TransactionClient) => {
+        const senderUser = await prismaTx.client.findUnique({
+          where: {
+            id: data.senderUserId,
+          },
+          include: {
+            account: true,
+          },
+        });
+
+        const receiverUser = await prismaTx.client.findUnique({
+          where: {
+            id: data.receiverUserId,
+          },
+          include: {
+            account: true,
+          },
+        });
+
+        if (!senderUser || !receiverUser) {
+          await lastValueFrom(
+            this.transactionClient.emit('status', {
+              transactionId: data.id,
+              option: 'ERRORED',
+            }),
+          );
+          throw new NotFoundException('Client not found');
+        }
+
+        if (senderUser.account.balance < data.amount) {
+          await lastValueFrom(
+            this.transactionClient.emit('status', {
+              transactionId: data.id,
+              option: 'ERRORED',
+            }),
+          );
+          throw new BadRequestException(
+            'You do not have balance to do this transaction',
+          );
+        }
+
+        await Promise.all([
+          prismaTx.account.update({
+            where: {
+              client_id: senderUser.id,
+            },
+            data: {
+              balance: senderUser.account.balance - data.amount,
+            },
+          }),
+          prismaTx.account.update({
+            where: {
+              client_id: receiverUser.id,
+            },
+            data: {
+              balance: receiverUser.account.balance + data.amount,
+            },
+          }),
+        ]);
+
+        await lastValueFrom(
+          this.transactionClient.emit('status', {
+            transactionId: data.id,
+            option: 'COMPLETED',
+          }),
+        );
+      },
+    );
   }
 }
